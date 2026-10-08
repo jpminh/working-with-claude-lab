@@ -13,6 +13,8 @@
   var DEFAULT_PRESET_DAYS = 30;
   var LATE_LIMIT = 20;
   var SVG_NS = 'http://www.w3.org/2000/svg';
+  var THEME_KEY = 'ops-dashboard-theme';
+  var DEFAULT_THEME = 'dark';
 
   // ---------- API client ----------
 
@@ -102,6 +104,42 @@
     return Math.round((parseIso(iso) - parseIso(today)) / 86400000);
   }
 
+  // ---------- Theme ----------
+
+  /** localStorage, or null where the browser refuses it (private mode, blocked site data). */
+  function themeStorage(document) {
+    try {
+      return document.defaultView.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** The stored theme, or dark when nothing valid is stored. The OS setting is ignored. */
+  function storedTheme(document) {
+    var storage = themeStorage(document);
+    var value = null;
+    try {
+      value = storage && storage.getItem(THEME_KEY);
+    } catch (e) {
+      value = null;
+    }
+    return value === 'light' || value === 'dark' ? value : DEFAULT_THEME;
+  }
+
+  function saveTheme(document, theme) {
+    try {
+      themeStorage(document).setItem(THEME_KEY, theme);
+    } catch (e) {
+      // Not persisted; the theme still applies for this page view.
+    }
+  }
+
+  /** Sets data-theme on <html>. The colours themselves live in style.css. */
+  function applyTheme(document, theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
   // ---------- App ----------
 
   function initApp(document, fetchImpl) {
@@ -122,7 +160,8 @@
       chartOnTime: document.getElementById('chart-on-time'),
       chartTickets: document.getElementById('chart-tickets'),
       lateBody: document.getElementById('late-body'),
-      vendors: document.getElementById('vendors-list')
+      vendors: document.getElementById('vendors-list'),
+      themeToggle: document.getElementById('theme-toggle')
     };
 
     var state = {
@@ -130,6 +169,7 @@
       from: null,
       to: null,
       preset: DEFAULT_PRESET_DAYS,
+      theme: storedTheme(document),
       kpis: null,
       onTime: [],
       late: [],
@@ -287,6 +327,20 @@
       });
     }
 
+    /** The button names the theme a click will switch to. */
+    function renderTheme() {
+      var next = state.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(document, state.theme);
+      els.themeToggle.textContent = (next === 'light' ? 'Light' : 'Dark') + ' theme';
+      els.themeToggle.setAttribute('aria-label', 'Switch to ' + next + ' theme');
+    }
+
+    function toggleTheme() {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      saveTheme(document, state.theme);
+      renderTheme();
+    }
+
     // ---------- Loading ----------
 
     function load(from, to) {
@@ -345,6 +399,9 @@
       });
     });
 
+    els.themeToggle.addEventListener('click', toggleTheme);
+    renderTheme();
+
     var ready = api.health().then(function (health) {
       state.today = health.today;
       var range = applyPreset(DEFAULT_PRESET_DAYS, state.today);
@@ -359,6 +416,7 @@
       state: state,
       load: load,
       selectPreset: selectPreset,
+      toggleTheme: toggleTheme,
       api: api
     };
   }
@@ -379,6 +437,8 @@
     module.exports = exported;
   } else if (root.document) {
     root.OpsDashboard = exported;
+    // As soon as the script runs, ahead of DOMContentLoaded, to shorten any flash of the default theme.
+    applyTheme(root.document, storedTheme(root.document));
     root.document.addEventListener('DOMContentLoaded', function () {
       root.OpsDashboard.app = initApp(root.document, root.fetch.bind(root));
     });
